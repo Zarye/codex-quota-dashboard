@@ -1,4 +1,4 @@
-# Codex Quota Mini · Codex 桌面额度看板
+# Codex Quota Dashboard · Codex 额度看板
 
 一个用 C# / WPF 编写的 Windows 桌面悬浮小窗，把 **Codex 剩余额度、下次重置时间、重置卡到期情况和 Tibo 重置雷达** 放在 Mini 附近，方便随时查看。
 
@@ -38,8 +38,8 @@
 ### 1. 获取源码
 
 ```powershell
-git clone https://github.com/Zarye/codex-quota-mini.git
-cd codex-quota-mini
+git clone https://github.com/Zarye/codex-quota-dashboard.git
+cd codex-quota-dashboard
 ```
 
 也可以在 GitHub 的 **Code → Download ZIP** 下载并解压，然后在该目录打开 PowerShell。
