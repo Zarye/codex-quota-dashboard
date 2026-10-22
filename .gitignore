@@ -5,11 +5,15 @@
 *.exe
 *.dll
 *.pdb
+*.exe.config
+/THIRD-PARTY-NOTICES.txt
 *.lnk
 *.ico
 *.png
 /bin/
 /obj/
+/packages/
+/dist/
 
 # Local diagnostics, editor files and temporary output
 *.log
