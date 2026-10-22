@@ -62,6 +62,7 @@ namespace CodexQuotaMini.Tests {
   }
   static object Entry(object tweet){return D("content",D("__typename","TimelineTimelineItem","content",D("tweet_results",D("result",tweet))));}
   static string Page(params object[] entries){var payload=Json.Write(new {data=new {timeline=new {instructions=new[]{new {__typename="TimelineAddEntries",entries=entries}}}}});return "<script>self.fixture="+Json.Write(payload)+";</script>";}
+  static string WatchPage(string handle){return Page(Entry(Tweet((2113162277688070500L+Array.IndexOf(PublicXClient.WatchAccounts,handle)).ToString(),"An unrelated public original",handle)));}
   sealed class Handler : HttpMessageHandler {
    public int Count;
    public Func<HttpRequestMessage,CancellationToken,Task<HttpResponseMessage>> Reply;
@@ -84,7 +85,7 @@ namespace CodexQuotaMini.Tests {
    Check(thread.Posts.Count==2&&found.Kind=="reply"&&found.ReplyToId==parent&&found.ContextIds.SequenceEqual(new[]{parent}),"conversation modules preserve exact reply parent and deduplicate");
    Check(PublicXParser.Parse("<html><script>self.login=true;</script></html>",DateTimeOffset.UtcNow).Posts.Count==0,"login shell is not fabricated as a successful timeline");
    Check(LocalResetPredictor.Analyze(thread.Posts,DateTimeOffset.UtcNow).Kind=="planned","collected self reply drives the local reset prediction");
-   using(var http=new PublicXClient(new Handler {Reply=(r,c)=>Task.FromResult(Response(r.RequestUri.AbsoluteUri==PublicXClient.Profile?profile:discussion))})){
+   using(var http=new PublicXClient(new Handler {Reply=(r,c)=>{string handle=r.RequestUri.AbsolutePath.Split('/')[1];return Task.FromResult(Response(PublicXClient.IsWatched(handle)?WatchPage(handle):r.RequestUri.AbsoluteUri==PublicXClient.Profile?profile:discussion));}})){
     var batch=await http.Collect(CancellationToken.None);Check(batch.Posts.Count==2&&!batch.Partial,"automatic collection discovers reply without a prefilled post ID");
    }
    using(var http=new PublicXClient(new Handler {Reply=(r,c)=>Task.FromResult(Response(r.RequestUri.AbsoluteUri==PublicXClient.Profile?profile:"",r.RequestUri.AbsoluteUri==PublicXClient.Profile?HttpStatusCode.OK:HttpStatusCode.NotFound))})){
@@ -114,8 +115,66 @@ namespace CodexQuotaMini.Tests {
    running.Dispose();await first;
    Check(store.History.CheckedAt==checkedAt&&waiting.Count==1,"disposing the widget cancels its collector without refreshing cache");
   }
+  static async Task SupplementalPages(){
+   const string ownId="2113162277688070700",selfId="2113162277688070701",otherId="2113162277688070702";
+   var own=Tweet(ownId,"Day 17/ It's reset day today.");var self=Tweet(selfId,"Lands tomorrow before 10am PST.");self["reply_to_results"]=D("rest_id",ownId);self["reply_to_user_results"]=D("result",D("core",D("screen_name","thsottiaux")));
+   var roots=new List<Dictionary<string,object>>();var now=DateTimeOffset.UtcNow;
+   for(int i=0;i<5;i++){var p=Tweet((2113162277688070710L+i).ToString(),"Public parent "+i,"claudeai");Json.Obj(p["details"])["created_at_ms"]=now.AddMinutes(-10-i).ToUnixTimeMilliseconds();roots.Add(p);}
+   string firstId=Convert.ToString(roots[0]["rest_id"]),firstUrl="https://x.com/claudeai/status/"+firstId;
+   var reply=Tweet(otherId,"@claudeai Dot, meet Duet.");reply["reply_to_results"]=D("rest_id",firstId);reply["reply_to_user_results"]=D("result",D("core",D("screen_name","claudeai")));
+   bool lateVisible=false;var late=Tweet("2113162277688070799","@claudeai Thanks for the update.");late["reply_to_results"]=D("rest_id",firstId);late["reply_to_user_results"]=D("result",D("core",D("screen_name","claudeai")));
+   var spoof=Tweet("2113162277688070790","The reset is complete");Json.Obj(Json.Get(Json.Obj(Json.Get(Json.Obj(spoof["core"]),"user_results")),"result"))["rest_id"]="999999999999999999";spoof["reply_to_results"]=D("rest_id",firstId);spoof["reply_to_user_results"]=D("result",D("core",D("screen_name","claudeai")));
+   roots[0]["quoted_tweet_results"]=D("result",Tweet("2113162277688070791","Quoted reset complete"));
+   string otherDiscussion=Page(Entry(roots[0]),Entry(reply),Entry(reply),Entry(spoof),Entry(Tweet("2113162277688070792","Reset complete","someoneelse")));
+   var requests=new List<string>();
+   Func<HttpRequestMessage,CancellationToken,Task<HttpResponseMessage>> respond=(r,c)=>{
+    string url=r.RequestUri.AbsoluteUri;requests.Add(url);string handle=r.RequestUri.AbsolutePath.Split('/')[1];
+    if(url==PublicXClient.Profile)return Task.FromResult(Response(Page(Entry(own))));
+    if(handle=="thsottiaux")return Task.FromResult(Response(Page(Entry(own),Entry(self))));
+    if(handle=="claudeai"){
+     if(url=="https://x.com/claudeai")return Task.FromResult(Response(Page(roots.Select(p=>Entry(p)).ToArray())));
+     if(url==firstUrl)return Task.FromResult(Response(lateVisible?Page(Entry(roots[0]),Entry(reply),Entry(late)):otherDiscussion));
+     var root=roots.Single(p=>url.EndsWith("/"+p["rest_id"]));return Task.FromResult(Response(Page(Entry(root))));
+    }
+    return Task.FromResult(Response(WatchPage(handle)));
+   };
+   var directory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"supplemental-"+Guid.NewGuid().ToString("N"));
+   PublicXBatch initial;
+   using(var client=new PublicXClient(new Handler {Reply=respond},directory))initial=await client.Collect(CancellationToken.None);
+   Check(!initial.Partial&&initial.Posts.Count==3&&initial.SupplementalDiscussions==4,"supplemental collection discovers other reply while retaining own posts and self replies");
+   var found=initial.Posts.Single(p=>p.Id==otherId);
+   Check(found.AuthorId=="1953337039510003712"&&found.ReplyToAuthor=="claudeai"&&found.ReplyToId==firstId&&found.DiscoveredOn==firstUrl&&found.DiscoveryProfile=="https://x.com/claudeai","other reply preserves verified author, parent and live discovery chain");
+   Check(!initial.Posts.Any(p=>p.Id=="2113162277688070790"||p.Id=="2113162277688070791"||p.Id=="2113162277688070792"),"spoofed author ID, quoted text, foreign authors and duplicates excluded");
+   Check(requests.Count(u=>u.StartsWith("https://x.com/claudeai/status/"))==2&&initial.WatchedParents==7,"discussion budget is bounded per watched account");
+   var store=new TiboStore(directory);store.Merge(initial.Posts,DateTimeOffset.UtcNow,PublicXClient.Profile,"partial coverage",false);
+   Check(store.History.SelfReplyCount==1&&store.History.OtherReplyCount==1&&store.History.ReplyCount==2,"self and other reply counts remain distinct");
+   var restored=new TiboStore(directory);var cached=restored.History.Posts.Single(p=>p.Id==otherId);
+   Check(cached.ReplyToAuthor=="claudeai"&&cached.DiscoveredOn==firstUrl&&restored.History.OtherReplyCount==1,"restart preserves other-reply label and discovery provenance");
+   Check(LocalResetPredictor.Analyze(initial.Posts,DateTimeOffset.UtcNow).Source.Id!=otherId,"unrelated other reply does not replace a reset forecast");
+   requests.Clear();PublicXBatch second;
+   using(var client=new PublicXClient(new Handler {Reply=respond},directory))second=await client.Collect(CancellationToken.None);
+   Check(!requests.Contains(firstUrl)&&requests.Contains("https://x.com/claudeai/status/"+roots[2]["rest_id"])&&requests.Contains("https://x.com/claudeai/status/"+roots[3]["rest_id"]),"parent rotation survives restart and visits previously unchecked discussions");
+   store.Merge(second.Posts,DateTimeOffset.UtcNow,PublicXClient.Profile,"partial coverage",false);
+   Check(store.History.Posts.Any(p=>p.Id==otherId)&&store.History.OtherReplyCount==0,"later rounds preserve discovered replies while counts describe this round only");
+   requests.Clear();
+   using(var client=new PublicXClient(new Handler {Reply=(r,c)=>r.RequestUri.AbsoluteUri=="https://x.com/claudeai"?Task.FromResult(Response("",HttpStatusCode.Forbidden)):respond(r,c)})){
+    var batch=await client.Collect(CancellationToken.None);
+    Check(batch.Partial&&batch.Posts.Count==2&&client.RetryAt>DateTimeOffset.UtcNow&&!requests.Any(u=>u.Contains("/theo")||u.Contains("/JustLingonberry")),"supplemental access refusal retains originals and stops all further X reads");
+   }
+   requests.Clear();
+   lateVisible=true;
+   using(var client=new PublicXClient(new Handler {Reply=(r,c)=>r.RequestUri.AbsoluteUri=="https://x.com/claudeai"?Task.FromResult(Response("",HttpStatusCode.NotFound)):respond(r,c)},directory)){
+    var batch=await client.Collect(CancellationToken.None);
+    Check(batch.Partial&&requests.Any(u=>u.StartsWith("https://x.com/claudeai/status/"))&&requests.Any(u=>u=="https://x.com/theo"),"failed profile still polls saved parents and other accounts without dropping history");
+    Check(batch.Posts.Any(p=>p.Id=="2113162277688070799"&&p.DiscoveredOn==firstUrl),"a later reply is discovered by revisiting a saved parent without a working profile");
+   }
+   Check(!PublicXClient.Allowed(new Uri("https://x.com/unconfigured/status/2113162277688070700"))&&!PublicXClient.Allowed(new Uri("https://x.com/claudeai/with_replies"))&&!PublicXClient.Allowed(new Uri("https://x.com/claudeai/status/2113162277688070700?x=1"))&&!PublicXClient.Allowed(new Uri("https://api.x.com/claudeai")),"expanded allowlist excludes unconfigured authors, login-only routes, queries and non-page hosts");
+   var pool=new PublicXParentPool(null);var expired=Tweet("2113162277688070800","old","claudeai");Json.Obj(expired["details"])["created_at_ms"]=now.AddDays(-8).ToUnixTimeMilliseconds();
+   pool.Add("claudeai",PublicXParser.Parse(Page(Entry(expired)),now,"claudeai").Posts,now);
+   Check(pool.Count==0,"parent pool expires sources older than seven days");
+  }
   [STAThread] public static int Main(){
-   try{Rules();PublicPages().GetAwaiter().GetResult();Console.WriteLine("TOTAL "+checks+" checks passed");return 0;}catch(Exception error){Console.Error.WriteLine(error);return 1;}
+   try{Rules();PublicPages().GetAwaiter().GetResult();SupplementalPages().GetAwaiter().GetResult();Console.WriteLine("TOTAL "+checks+" checks passed");return 0;}catch(Exception error){Console.Error.WriteLine(error);return 1;}
   }
  }
 }

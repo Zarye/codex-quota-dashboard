@@ -22,8 +22,8 @@ using Microsoft.Win32;
 
 [assembly: System.Reflection.AssemblyTitle("Codex 额度看板")]
 [assembly: System.Reflection.AssemblyProduct("Codex Quota Dashboard")]
-[assembly: System.Reflection.AssemblyVersion("0.3.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.3.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.4.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.4.0.0")]
 
 namespace CodexQuotaMini {
  static class Json {

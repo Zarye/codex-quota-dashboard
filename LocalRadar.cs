@@ -24,13 +24,17 @@ namespace CodexQuotaMini {
   public string Url {get;set;}
   public string Kind {get;set;}
   public string ReplyToId {get;set;}
+  public string AuthorId {get;set;}
+  public string ReplyToAuthor {get;set;}
+  public string DiscoveredOn {get;set;}
+  public string DiscoveryProfile {get;set;}
   public List<string> ContextIds=new List<string>();
  }
  sealed class TiboHistory {
   public int Version=1;
   public string CheckedAt,PageUrl;
   public string CoverageNote;
-  public int OriginalCount,ReplyCount;
+  public int OriginalCount,ReplyCount,SelfReplyCount,OtherReplyCount,UnknownReplyCount;
   public bool Partial;
   public List<TiboPost> Posts=new List<TiboPost>();
  }
@@ -46,12 +50,18 @@ namespace CodexQuotaMini {
   public static List<TiboPost> Clean(IEnumerable<TiboPost> posts,DateTimeOffset now){
    return (posts??new List<TiboPost>()).Where(p=>p!=null&&Regex.IsMatch(p.Id??"",@"^\d{10,25}$")&&RadarData.SafeUrl(p.Url)=="https://x.com/thsottiaux/status/"+p.Id&&!String.IsNullOrWhiteSpace(p.Text)&&p.Text.Length<=12000&&RadarData.Date(p.PublishedAt).HasValue&&RadarData.Date(p.PublishedAt)<=now.AddMinutes(5)&&RadarData.Date(p.PublishedAt)>=now.AddDays(-180)).GroupBy(p=>p.Id).Select(g=>g.Last()).OrderByDescending(p=>RadarData.Date(p.PublishedAt)).Take(2000).ToList();
   }
+  public static string ReplyKind(TiboPost post,IEnumerable<TiboPost> context){
+   if(post.Kind!="reply")return "";
+   if(!String.IsNullOrEmpty(post.ReplyToAuthor))return post.ReplyToAuthor.Equals("thsottiaux",StringComparison.OrdinalIgnoreCase)?"self":"other";
+   return !String.IsNullOrEmpty(post.ReplyToId)&&(context??new TiboPost[0]).Any(p=>p.Id==post.ReplyToId)?"self":"unknown";
+  }
   public void Merge(IEnumerable<TiboPost> posts,DateTimeOffset now,string pageUrl){
    Merge(posts,now,pageUrl,"近期原帖及公开讨论中的作者回复，回复覆盖不完整。",false);
   }
   public void Merge(IEnumerable<TiboPost> posts,DateTimeOffset now,string pageUrl,string coverageNote,bool partial){
    var incoming=Clean(posts,now);
-   var next=new TiboHistory {Posts=Clean(History.Posts.Concat(incoming),now),CheckedAt=now.ToString("o"),PageUrl=pageUrl,CoverageNote=coverageNote,Partial=partial,OriginalCount=incoming.Count(p=>p.Kind=="post"),ReplyCount=incoming.Count(p=>p.Kind=="reply")};
+   var combined=Clean(History.Posts.Concat(incoming),now);
+   var next=new TiboHistory {Posts=combined,CheckedAt=now.ToString("o"),PageUrl=pageUrl,CoverageNote=coverageNote,Partial=partial,OriginalCount=incoming.Count(p=>p.Kind=="post"),ReplyCount=incoming.Count(p=>p.Kind=="reply"),SelfReplyCount=incoming.Count(p=>ReplyKind(p,combined)=="self"),OtherReplyCount=incoming.Count(p=>ReplyKind(p,combined)=="other"),UnknownReplyCount=incoming.Count(p=>ReplyKind(p,combined)=="unknown")};
    Directory.CreateDirectory(Path.GetDirectoryName(file));string temporary=file+".tmp";File.WriteAllText(temporary,new JavaScriptSerializer {MaxJsonLength=8*1024*1024}.Serialize(next),Encoding.UTF8);if(File.Exists(file))File.Replace(temporary,file,null);else File.Move(temporary,file);History=next;
   }
  }

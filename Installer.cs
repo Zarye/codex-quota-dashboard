@@ -8,8 +8,8 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Codex 额度看板安装程序")]
 [assembly: AssemblyProduct("Codex Quota Dashboard")]
-[assembly: AssemblyVersion("0.3.0.0")]
-[assembly: AssemblyFileVersion("0.3.0.0")]
+[assembly: AssemblyVersion("0.4.0.0")]
+[assembly: AssemblyFileVersion("0.4.0.0")]
 
 namespace CodexQuotaDashboardSetup {
  sealed class Installer : Form {
@@ -19,7 +19,7 @@ namespace CodexQuotaDashboardSetup {
   readonly string destination=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CodexQuotaDashboard");
   bool installed;
   public Installer(){
-   Text="安装 Codex 额度看板 v0.3.0";ClientSize=new System.Drawing.Size(520,310);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;StartPosition=FormStartPosition.CenterScreen;
+   Text="安装 Codex 额度看板 v0.4.0";ClientSize=new System.Drawing.Size(520,310);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;StartPosition=FormStartPosition.CenterScreen;
    var panel=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false,Padding=new Padding(20)};Controls.Add(panel);
    panel.Controls.Add(new Label {Text="Codex 额度看板 · 本机直连版",AutoSize=true,Font=new System.Drawing.Font("Microsoft YaHei UI",14,System.Drawing.FontStyle.Bold),Margin=new Padding(0,0,0,14)});
    panel.Controls.Add(new Label {Text="个人额度、重置卡、Tibo 公开消息和本地规则研判。\n免登录直连 X，无需 Agent、API 密钥或独立服务器。\n随看板自动更新近期原帖与公开讨论中的自回复。",AutoSize=true,Margin=new Padding(0,0,0,12)});

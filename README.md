@@ -6,6 +6,15 @@
 
 > 展示的是当前登录账号的 Codex 额度。可用周期、额度分组和重置卡明细取决于账号接口返回的数据；ChatGPT 各模型的消息次数和聊天上下文余量不在查询范围内。
 
+## v0.4.0 更新 · 回复他人补充采集
+
+- **随看板自动运行**：沿用每 5 分钟的刷新，在同一进程中读取 `@claudeai`、`@theo`、`@JustLingonberry` 的公开主页，从实际返回的帖子发现讨论地址，再筛选作者 ID 为 Tibo 的回复。无需打开验证程序。
+- **近期父帖轮询**：保留近 7 天发现的父帖，每账号最多 10 条，每轮读取其中 2 个讨论；即使帖子不再出现在主页里，也会在保留范围内继续轮询。具体讨论的刷新间隔取决于轮询顺序。
+- **类别和来源明确**：分别统计原帖、自回复和回复他人，明细显示回复对象、发布时间、X 原文及发现来源。已发现的回复在后续轮次和重启后保留。
+- **仍然部分覆盖**：观察账号池和公开返回内容都有范围限制，可能漏掉其他账号、未公开返回的帖子或回复。普通聊天回复不会自动变成重置预告。
+
+v0.4.0 安装版和便携版已在下方提供。此版本会从观察账号的公开主页发现讨论，再读取讨论中的 Tibo 回复；采集覆盖有限，详见下文。
+
 ## v0.3.0 更新 · 2026-10-23
 
 - **免登录直连 X**：看板启动即读取 Tibo 公开主页及最近三条原帖的讨论页，每 5 分钟自动更新原帖、自回复和本地重置研判。
@@ -26,8 +35,8 @@
 | 周期重置倒计时 | 常驻显示下次重置日期、时间和剩余时长，统一换算为北京时间 |
 | 重置卡查询 | 显示可用张数、最近到期时间；展开后查看卡片状态、到期时间、剩余时长和发放时间 |
 | 临期提示 | 重置卡在 24 小时内到期时高亮；缺失或部分明细会明确标注 |
-| Tibo 直连雷达 | 免登录读取 `@thsottiaux` 公开主页及最近三条原帖的讨论页，保存原文、时间和自回复父帖关系 |
-| 消息明细 | 点击雷达底部“消息”查看原帖、自回复及原文链接，显示采集范围和更新时间 |
+| Tibo 直连雷达 | 免登录读取 `@thsottiaux` 公开主页、最近三条原帖的讨论页及观察账号的公开讨论，保存原文、时间和父帖关系 |
+| 消息明细 | 点击雷达底部“消息”查看原帖、自回复、回复他人、回复对象、X 原文及发现来源，显示采集范围和更新时间 |
 | 本地重置研判 | 规则识别预告、完成声明、发卡、否定及弱线索；解析时间窗口并展示依据，未经校准不输出精确概率 |
 | 自动与手动刷新 | 账号额度和重置卡每 60 秒刷新；X 页面每 5 分钟读取，也可随时手动查询 |
 | Mini 跟随 | 随 Mini 移动和隐藏，拖动小窗可保存相对间距，也可关闭跟随独立摆放 |
@@ -47,16 +56,16 @@
 
 | 下载 | 用途 |
 | --- | --- |
-| [v0.3.0 安装版 · Setup.exe](https://github.com/Zarye/codex-quota-dashboard/releases/download/v0.3.0/CodexQuotaDashboard-Setup.exe) | 双击安装到当前用户的本地应用目录，创建开始菜单入口，无需管理员权限 |
-| [v0.3.0 便携版 · Windows x64 ZIP](https://github.com/Zarye/codex-quota-dashboard/releases/download/v0.3.0/CodexQuotaDashboard-Windows-x64.zip) | 解压后保留 EXE 与配置在同一目录运行 |
-| [SHA-256 校验文件](https://github.com/Zarye/codex-quota-dashboard/releases/download/v0.3.0/SHA256SUMS.txt) | 核对安装包与便携包的文件哈希 |
-| [版本说明](https://github.com/Zarye/codex-quota-dashboard/releases/tag/v0.3.0) | 查看本次功能、运行要求和已知覆盖范围 |
+| [v0.4.0 安装版 · Setup.exe](https://github.com/Zarye/codex-quota-dashboard/releases/download/v0.4.0/CodexQuotaDashboard-Setup.exe) | 双击安装到当前用户的本地应用目录，创建开始菜单入口，无需管理员权限 |
+| [v0.4.0 便携版 · Windows x64 ZIP](https://github.com/Zarye/codex-quota-dashboard/releases/download/v0.4.0/CodexQuotaDashboard-Windows-x64.zip) | 解压后保留 EXE 与配置在同一目录运行 |
+| [SHA-256 校验文件](https://github.com/Zarye/codex-quota-dashboard/releases/download/v0.4.0/SHA256SUMS.txt) | 核对安装包与便携包的文件哈希 |
+| [版本说明](https://github.com/Zarye/codex-quota-dashboard/releases/tag/v0.4.0) | 查看本次功能、运行要求和已知覆盖范围 |
 
 从旧预览版升级：安装版再次运行新版 Setup.exe；便携版先退出看板，再将新版 EXE、配置与说明放回原目录，保留 `data/`，以继续使用窗口设置和公开消息历史。新版不再读取旧 X 浏览器会话。不要将个人 `data/` 一并分享给别人。
 
-看板启动后立即读取 Tibo 公开主页，再读取最近三条原帖的公开讨论页，每 5 分钟自动更新。采集、保存和本地研判均在看板进程内完成，不会弹出浏览器或启动验证程序。点击底部“消息”可查看本轮条数、消息原文、时间及来源链接。
+看板启动后立即读取 Tibo 公开主页、最近三条原帖的公开讨论页及观察账号的公开主页，每 5 分钟自动刷新并轮询他人讨论。默认观察 `claudeai`、`theo`、`JustLingonberry`；每账号保留近 7 天发现的最多 10 个父帖，每轮轮询 2 个。采集、保存和本地研判均在看板进程内完成，不会弹出浏览器或启动验证程序。点击底部“消息”可查看本轮条数、消息原文、时间、回复对象及发现来源。
 
-采集范围为公开主页当前可见的近期原帖和所选讨论中可见的作者回复，**无法保证覆盖 Tibo 在别人帖子下面的回复或完整历史**。看板始终显示“覆盖有限”。X 页面变化或网络错误时保留上次记录，部分讨论页失败会标注未更新；遇到匿名访问拒绝或限流会等待后重试，不轮换身份或中转来源。
+采集范围为公开主页返回的近期原帖和所选讨论中可见的 Tibo 回复，包括观察账号帖子下的部分回复。**无法保证覆盖所有账号、帖子、回复或完整历史**，公开主页返回的记录也不保证按时间连续。看板始终显示“覆盖有限”，累计数保留此前已采集的回复，本轮数仅描述当轮结果。X 页面变化或网络错误时保留上次记录；部分主页失败时仍可轮询已保存的父帖，匿名访问拒绝或限流时停止本轮后续 X 请求并等待，不轮换身份或中转来源。
 
 ## 快速开始
 
@@ -120,7 +129,7 @@ powershell -NoProfile -File .\test.ps1
 | 拖动小窗空白处 | 调整位置；开启跟随时保存相对 Mini 的间距 |
 | 点击“重置卡”区域 | 展开只读明细，点击区域外收起 |
 | 点击 Tibo 预告 | 打开对应的 Tibo 原帖 |
-| 点击雷达底部“消息” | 查看已采集的原帖、自回复、发布时间与原文链接，也可手动更新 |
+| 点击雷达底部“消息” | 查看原帖、自回复、回复他人、回复对象、时间、X 原文和发现来源，也可手动更新 |
 | 右键切换“跟随 Mini” | 在联动跟随和独立摆放之间切换 |
 | 点击 `×` 或右键“关闭” | 关闭小窗并结束其额度读取连接 |
 
@@ -142,7 +151,7 @@ powershell -NoProfile -File .\test.ps1
 
 ### 本地预测是怎么实现的？
 
-程序只解析 X 公开页面携带的消息数据，筛选作者为 `@thsottiaux` 的原帖与自回复，保留原文、发帖时间和父帖关系。`local-rules-v1` 识别重置预告、完成措辞、备用卡消息、否定表述和弱线索；再将 `within the next 2 hours`、`before 10am PST` 等时间表达换算为北京时间。
+程序只解析 X 公开页面携带的消息数据，核对 Tibo 作者 ID 后保存其原帖、自回复和采集到的回复他人，保留原文、发帖时间、父帖、回复对象和发现来源。观察账号的原文只用于发现及核对讨论，不会当成 Tibo 的发言或重置承诺。`local-rules-v1` 识别重置预告、完成措辞、备用卡消息、否定表述和弱线索；再将 `within the next 2 hours`、`before 10am PST` 等时间表达换算为北京时间。
 
 只有父帖关系关联到此前一小时内的重置预告时，才将独立的时间回复用于重置研判，并明确标为规则推定。单独的 `Done`、提问、愿望、无关发言不会当成完成公告。原帖 PST 与当地夏令时不一致时保留两个可能截止时刻。
 
@@ -174,7 +183,7 @@ Get-StartApps | Where-Object { $_.Name -match 'ChatGPT|Codex' }
 
 账号数据通过本机 Codex app-server 的 `account/rateLimits/read` 查询，使用 `rateLimitsByLimitId`、`resetsAt` 和 `rateLimitResetCredits` 等返回字段。程序复用 Codex 自身的登录管理，不复制或保存登录密钥，也不创建聊天或调用推理模型。
 
-Tibo 雷达只向 [Tibo 公开主页](https://x.com/thsottiaux)及从主页发现的本人原帖地址发送 HTTPS GET，解析页面携带的 JSON，不执行页面 JavaScript。请求不包含 X 登录 Cookie 或用户凭据，不请求第三方雷达、消息镜像、预测网站或签名字典。账号查询协议可参见 [Codex app-server 接口说明](https://learn.chatgpt.com/docs/app-server)。本程序不开启本地 HTTP 服务或外部服务器。
+Tibo 雷达只向 [Tibo 公开主页](https://x.com/thsottiaux)、观察账号 `claudeai` / `theo` / `JustLingonberry` 的公开主页及从这些主页实际发现的帖子地址发送 HTTPS GET。请求地址限制为 `x.com` 上上述账号的主页和帖子页，解析页面携带的 JSON，不执行页面 JavaScript。请求不包含 X 登录 Cookie 或用户凭据，不请求第三方雷达、消息镜像、预测网站或签名字典。账号查询协议可参见 [Codex app-server 接口说明](https://learn.chatgpt.com/docs/app-server)。本程序不开启本地 HTTP 服务或外部服务器。
 
 账号额度和重置卡数据不会发送给 X。X 采集不读取浏览器配置，旧版留下的独立 X 会话目录也不再使用。缓存文件保存在程序目录：
 
@@ -183,8 +192,9 @@ Tibo 雷达只向 [Tibo 公开主页](https://x.com/thsottiaux)及从主页发�
 | `data/settings.json` | 跟随开关、窗口位置和相对间距 |
 | `data/launch-settings.json` | 用户自行配置的桌面应用启动标识 |
 | `data/quota-cache.json` | 账号额度、重置卡展示字段和查询时间 |
-| `data/tibo-direct-history.json` | 采集消息、父帖关系、采集范围、本轮条数和最近成功刷新时间 |
-| `data/collector-state.json` | 采集状态、下次刷新时间及回复覆盖提示 |
+| `data/tibo-direct-history.json` | 消息、父帖、回复对象、发现来源、分类条数、采集范围和最近成功刷新时间 |
+| `data/tibo-public-parents.json` | 从观察账号公开主页发现的近期父帖、作者和轮询时间，用于跨轮次及重启后继续检查 |
+| `data/collector-state.json` | 采集状态、分类条数、观察账号、父帖池、本轮补充讨论数、下次刷新时间及部分覆盖提示 |
 | `data/window-state.json` | 最近一次窗口位置与显示状态 |
 | `小窗预览.png` | 程序生成的当前看板预览，可能包含个人额度读数 |
 

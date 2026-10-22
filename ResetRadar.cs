@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
@@ -18,7 +19,7 @@ namespace CodexQuotaMini {
   ResetAssessment current;
   bool closed;
   public event Action Updated;
-  public object DisplayState {get{return new {mode="x-public-pages",status=collector.Status,problem=collector.Problem,checkedAt=store.History.CheckedAt,originals=store.History.OriginalCount,replies=store.History.ReplyCount,partial=store.History.Partial,coverage=XMessageCollector.Coverage,summary=current==null?"":current.Summary,sourceId=current==null||current.Source==null?null:current.Source.Id,earliestDeadline=current==null?null:current.EarliestDeadline,latestDeadline=current==null?null:current.LatestDeadline};}}
+  public object DisplayState {get{return new {mode="x-public-pages",status=collector.Status,problem=collector.Problem,checkedAt=store.History.CheckedAt,originals=store.History.OriginalCount,replies=store.History.ReplyCount,selfReplies=store.History.SelfReplyCount,otherReplies=store.History.OtherReplyCount,partial=store.History.Partial,coverage=XMessageCollector.Coverage,summary=current==null?"":current.Summary,sourceId=current==null||current.Source==null?null:current.Source.Id,earliestDeadline=current==null?null:current.EarliestDeadline,latestDeadline=current==null?null:current.LatestDeadline};}}
   static Brush BrushOf(string value){return new SolidColorBrush((Color)ColorConverter.ConvertFromString(value));}
   public ResetRadarControl(string dataDir){
    store=new TiboStore(dataDir);collector=new XMessageCollector(dataDir,store);collector.Changed+=Render;
@@ -41,8 +42,8 @@ namespace CodexQuotaMini {
    string detail=current.Reason+(current.Source==null?"":"\n\n原文："+current.Source.Text+"\n发布时间："+RadarData.Date(current.Source.PublishedAt).Value.ToOffset(RadarData.Beijing).ToString("MM/dd HH:mm")+" 北京时间\n"+current.Source.Url);
    signalLink.ToolTip=new TextBlock {Text=detail,TextWrapping=TextWrapping.Wrap,MaxWidth=430};AutomationProperties.SetName(signalLink,current.Summary);
    assessment.Text="本地研判 · "+current.Strength+(stale||store.History.Partial||collector.Problem!=null?" · 缓存":"");assessment.ToolTip="本机关键词与时间规则，尚未校准，不显示精确概率。个人额度是否恢复，以上方账号读数为准。";
-   activity.Text=checkedAt.HasValue?"本轮 "+store.History.OriginalCount+" 原帖 · "+store.History.ReplyCount+" 自回复 · 覆盖有限":"原帖与自回复自动更新";
-   activity.ToolTip=XMessageCollector.Coverage;
+   activity.Text=checkedAt.HasValue?"本轮 "+store.History.OriginalCount+" 原帖 · "+store.History.SelfReplyCount+" 自回复\n累计回复他人 "+store.History.Posts.Count(p=>TiboStore.ReplyKind(p,store.History.Posts)=="other")+" · 覆盖有限":"原帖、自回复与回复他人自动更新";
+   activity.ToolTip=XMessageCollector.Coverage+"\n"+XMessageCollector.WatchScope;
    source.Text=!String.IsNullOrEmpty(collector.Problem)?collector.Problem+" · 消息 ↗":checkedAt.HasValue?"免登录直连 · "+checkedAt.Value.ToOffset(RadarData.Beijing).ToString("HH:mm")+" · 消息 ↗":"免登录直连 · 正在读取 · 消息 ↗";
    source.Foreground=BrushOf(stale||collector.Problem!=null?"#D4AF74":"#778294");sourceLink.ToolTip=collector.Status+"\n每 5 分钟自动读取；下次 "+collector.NextRefresh+"。\n"+XMessageCollector.Coverage+"\n随看板启动和退出，无独立后台程序。";
    if(Updated!=null)Updated();
