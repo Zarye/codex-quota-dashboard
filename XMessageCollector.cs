@@ -1,116 +1,84 @@
 using System;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Reflection;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
 
 namespace CodexQuotaMini {
- sealed class XCapture {
-  public TiboPost[] Posts {get;set;}
-  public string PageUrl {get;set;}
-  public bool IsTiboPage {get;set;}
-  public bool LoginRequired {get;set;}
- }
  sealed class XMessageCollector : IDisposable {
-  public const string Timeline="https://x.com/thsottiaux/with_replies";
-  readonly string profile;
+  public const string Timeline=PublicXClient.Profile;
+  public const string Coverage="近期原帖与公开讨论中的自回复；账号回复覆盖不完整。";
   readonly string stateFile;
   readonly TiboStore store;
+  readonly PublicXClient client;
+  readonly CancellationTokenSource lifetime=new CancellationTokenSource();
   readonly DispatcherTimer timer=new DispatcherTimer();
-  readonly string extractionScript;
-  Window window;
-  WebView2 view;
-  TextBlock status;
-  bool closed,initializing,capturing,navigating;
-  DateTimeOffset nextRefresh=DateTimeOffset.MinValue,lastNavigation=DateTimeOffset.MinValue,nextCapture=DateTimeOffset.MinValue;
-  IntPtr processJob=IntPtr.Zero;
+  DateTimeOffset nextRefresh=DateTimeOffset.MinValue;
+  Task pending;
+  bool closed,started;
+  Window details;
+  StackPanel messages;
   public string Status {get;private set;}
-  public bool NeedsLogin {get;private set;}
   public string Problem {get;private set;}
-  public bool Ready {get{return view!=null&&view.CoreWebView2!=null;}}
+  public string NextRefresh {get{return nextRefresh==DateTimeOffset.MinValue?"":nextRefresh.ToOffset(RadarData.Beijing).ToString("HH:mm");}}
   public event Action Changed;
-  public XMessageCollector(string dataDir,TiboStore store){
-   this.store=store;profile=Path.Combine(dataDir,"x-browser-profile");stateFile=Path.Combine(dataDir,"collector-state.json");
-   using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("TiboCollector.js"))using(var reader=new StreamReader(stream))extractionScript=reader.ReadToEnd();
-   Status="正在启动内置 X 采集器";
-   timer.Interval=TimeSpan.FromSeconds(3);timer.Tick+=async(s,e)=>await Tick();
+  public XMessageCollector(string dataDir,TiboStore store):this(dataDir,store,new PublicXClient()){}
+  internal XMessageCollector(string dataDir,TiboStore store,PublicXClient client){
+   this.store=store;this.client=client;stateFile=Path.Combine(dataDir,"collector-state.json");Status="即将免登录读取 Tibo 公开消息";
+   timer.Interval=TimeSpan.FromSeconds(15);timer.Tick+=async(s,e)=>await Refresh(false);
   }
-  void SetStatus(string text){Status=text;if(status!=null)status.Text=text;try{File.WriteAllText(stateFile,Json.Write(new {status=text,needsLogin=NeedsLogin,ready=Ready,posts=store.History.Posts.Count,checkedAt=store.History.CheckedAt,updatedAt=DateTimeOffset.UtcNow.ToString("o")}));}catch{}if(Changed!=null)Changed();}
-  public async Task Start(){
-   if(closed||initializing||Ready)return;initializing=true;
-   try {
-    if(String.IsNullOrWhiteSpace(CoreWebView2Environment.GetAvailableBrowserVersionString()))throw new InvalidOperationException("请安装 Microsoft Edge WebView2 Runtime");
-    window=new Window {Title="Tibo 直连采集 · 首次登录后自动监控",Width=1050,Height=780,MinWidth=700,MinHeight=500,ShowActivated=false,WindowStartupLocation=WindowStartupLocation.CenterScreen};
-    var panel=new DockPanel();var bar=new StackPanel {Margin=new Thickness(12)};DockPanel.SetDock(bar,Dock.Top);
-    bar.Children.Add(new TextBlock {Text="消息直接来自 X，分类和时间推断在本机完成。首次使用请登录 X；关闭此窗口会收起采集页。",TextWrapping=TextWrapping.Wrap});
-    status=new TextBlock {Text=Status,Margin=new Thickness(0,6,0,6)};bar.Children.Add(status);
-    var reload=new Button {Content="查看 Tibo 最新动态",HorizontalAlignment=HorizontalAlignment.Left,Padding=new Thickness(10,4,10,4)};reload.Click+=async(s,e)=>await Refresh(true);bar.Children.Add(reload);panel.Children.Add(bar);
-    view=new WebView2();panel.Children.Add(view);window.Content=panel;window.Closing+=OnClosing;
-    window.Show();if(store.History.Posts.Count>0){window.ShowInTaskbar=false;window.Hide();}
-    Directory.CreateDirectory(profile);
-    var environment=await CoreWebView2Environment.CreateAsync(null,profile);
-    if(closed)return;
-    await view.EnsureCoreWebView2Async(environment);
-    if(closed)return;
-    view.CoreWebView2.Settings.IsWebMessageEnabled=false;
-    view.CoreWebView2.Settings.IsPasswordAutosaveEnabled=false;
-    view.CoreWebView2.NewWindowRequested+=(s,e)=>{e.Handled=true;};
-    view.CoreWebView2.DownloadStarting+=(s,e)=>{e.Cancel=true;};
-    view.CoreWebView2.NavigationStarting+=(s,e)=>{navigating=true;};
-    view.CoreWebView2.NavigationCompleted+=(s,e)=>{
-     navigating=false;
-     if(!e.IsSuccess){Problem="X 页面连接失败";SetStatus(Problem+" · 可打开采集页检查");return;}
-     lastNavigation=DateTimeOffset.UtcNow;nextCapture=DateTimeOffset.MinValue;
-     Uri uri;if(Uri.TryCreate(view.Source==null?"":view.Source.AbsoluteUri,UriKind.Absolute,out uri)&&uri.Host=="x.com"&&uri.AbsolutePath=="/home")view.CoreWebView2.Navigate(Timeline);
-    };
-    try{using(var process=Process.GetProcessById((int)view.CoreWebView2.BrowserProcessId))processJob=Native.OwnProcessTree(process.Handle);}catch{}
-    view.CoreWebView2.Navigate(Timeline);nextRefresh=DateTimeOffset.UtcNow.AddMinutes(5);timer.Start();
-    SetStatus("正在读取 Tibo 页面；如需登录，请在采集窗口完成");
-   }catch(Exception error){Problem="采集器未就绪";SetStatus(Problem+"："+error.Message);if(view!=null){view.Dispose();view=null;}if(window!=null){window.Closing-=OnClosing;window.Close();window=null;}}
-   finally{initializing=false;}
+  void Notify(){
+   if(closed)return;
+   try{File.WriteAllText(stateFile,Json.Write(new {mode="x-public-pages",status=Status,problem=Problem,posts=store.History.Posts.Count,originals=store.History.OriginalCount,replies=store.History.ReplyCount,checkedAt=store.History.CheckedAt,nextRefreshAt=nextRefresh.ToString("o"),coverage=Coverage,completeRepliesTimeline=false,updatedAt=DateTimeOffset.UtcNow.ToString("o")}));}catch{}
+   RenderMessages();if(Changed!=null)Changed();
   }
-  void OnClosing(object sender,CancelEventArgs e){if(!closed){e.Cancel=true;window.Hide();window.ShowInTaskbar=false;}}
-  public void Show(){if(closed)return;if(window==null){var ignored=Start();return;}window.ShowInTaskbar=true;window.Show();window.WindowState=WindowState.Normal;window.Activate();}
-  public async Task Refresh(bool force){
-   if(closed)return;if(!Ready){await Start();return;}
-   if(navigating)return;
-   if(force||DateTimeOffset.UtcNow>=nextRefresh){
-    nextRefresh=DateTimeOffset.UtcNow.AddMinutes(5);
-    // Do not interrupt login or user-entered forms with an automatic reload.
-    if(!force&&window.IsVisible){await Capture();return;}
-    SetStatus("正在刷新 Tibo 公开动态");
-    if(view.Source!=null&&view.Source.AbsoluteUri==Timeline)view.CoreWebView2.Reload();else view.CoreWebView2.Navigate(Timeline);
+  public Task Start(){if(closed)return Task.FromResult(0);if(!started){started=true;timer.Start();}return Refresh(false);}
+  public Task Refresh(bool force){
+   if(closed)return Task.FromResult(0);
+   if(pending!=null&&!pending.IsCompleted)return pending;
+   if((!force&&DateTimeOffset.UtcNow<nextRefresh)||(client.RetryAt.HasValue&&client.RetryAt>DateTimeOffset.UtcNow))return Task.FromResult(0);
+   pending=Collect();return pending;
+  }
+  async Task Collect(){
+   nextRefresh=DateTimeOffset.UtcNow.AddMinutes(5);Status="正在免登录读取 Tibo 原帖与自回复";Notify();
+   try{
+    var batch=await client.Collect(lifetime.Token);if(closed)return;
+    store.Merge(batch.Posts,batch.CheckedAt,Timeline,Coverage+(batch.Partial?" "+batch.Detail:""),batch.Partial);
+    Problem=batch.Partial?"部分讨论页未更新":null;
+    Status="X 免登录直连 · 本轮 "+store.History.OriginalCount+" 原帖 / "+store.History.ReplyCount+" 自回复"+(batch.Partial?" · "+batch.Detail:"");
+   }catch(OperationCanceledException){if(closed)return;Problem="X 读取超时";Status=Problem+" · 保留上次记录";}
+   catch(XReadException error){Problem=error.Message;Status=Problem+" · 保留上次记录";}
+   catch(Exception){if(closed)return;Problem="X 消息读取失败";Status=Problem+" · 保留上次记录";}
+   finally{if(!closed){nextRefresh=DateTimeOffset.UtcNow.AddMinutes(5);if(client.RetryAt.HasValue&&client.RetryAt>nextRefresh)nextRefresh=client.RetryAt.Value;Notify();}}
+  }
+  public void Show(){
+   if(closed)return;
+   if(details==null){
+    details=new Window {Title="Tibo 公开消息 · 免登录直连",Width=530,Height=650,MinWidth=420,MinHeight=350,WindowStartupLocation=WindowStartupLocation.CenterScreen,Background=Brushes.White,FontFamily=new FontFamily("Microsoft YaHei UI")};
+    messages=new StackPanel {Margin=new Thickness(16)};details.Content=new ScrollViewer {Content=messages,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+    details.Closed+=(s,e)=>{details=null;messages=null;};
+   }
+   RenderMessages();details.Show();details.Activate();
+  }
+  void RenderMessages(){
+   if(messages==null)return;messages.Children.Clear();
+   messages.Children.Add(new TextBlock {Text=Status,FontSize=14,FontWeight=FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap});
+   messages.Children.Add(new TextBlock {Text=Coverage+"\n每 5 分钟自动更新，下次读取 "+NextRefresh+"（北京时间）。",Foreground=Brushes.DimGray,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,12)});
+   var refresh=new Button {Content="立即更新消息",HorizontalAlignment=HorizontalAlignment.Left,Padding=new Thickness(10,5,10,5),Margin=new Thickness(0,0,0,12)};refresh.Click+=async(s,e)=>await Refresh(true);messages.Children.Add(refresh);
+   if(store.History.Posts.Count==0)messages.Children.Add(new TextBlock {Text="暂未读取到可用消息；看板会自动重试。",TextWrapping=TextWrapping.Wrap});
+   foreach(var post in store.History.Posts.Take(40)){
+    var card=new StackPanel {Margin=new Thickness(0,0,0,14)};var time=RadarData.Date(post.PublishedAt);
+    card.Children.Add(new TextBlock {Text=(post.Kind=="reply"?"自回复":post.Kind=="post"?"原帖":"消息")+" · "+(time.HasValue?time.Value.ToOffset(RadarData.Beijing).ToString("MM/dd HH:mm:ss"):"时间未知"),FontWeight=FontWeights.SemiBold});
+    card.Children.Add(new TextBlock {Text=post.Text,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,5,0,5)});
+    string target=RadarData.SafeUrl(post.Url);var link=new Button {Content="查看 X 原文 ↗",HorizontalAlignment=HorizontalAlignment.Left,Padding=new Thickness(6,2,6,2)};
+    link.Click+=(s,e)=>{if(target!="")try{Process.Start(new ProcessStartInfo {FileName=target,UseShellExecute=true});}catch{}};card.Children.Add(link);messages.Children.Add(card);
    }
   }
-  async Task Tick(){
-   if(closed||!Ready||navigating)return;
-   if(DateTimeOffset.UtcNow>=nextRefresh){await Refresh(false);return;}
-   if(DateTimeOffset.UtcNow>=nextCapture&&DateTimeOffset.UtcNow-lastNavigation<TimeSpan.FromSeconds(45)){nextCapture=DateTimeOffset.UtcNow.AddSeconds(5);await Capture();}
-  }
-  async Task Capture(){
-   if(closed||capturing||!Ready)return;capturing=true;
-   try {
-    var raw=await view.CoreWebView2.ExecuteScriptAsync(extractionScript+"(document, location.href)");if(closed)return;
-    var capture=new JavaScriptSerializer {MaxJsonLength=2*1024*1024}.Deserialize<XCapture>(raw);
-    if(capture==null)return;
-    NeedsLogin=capture.LoginRequired;
-    if(!capture.IsTiboPage||capture.Posts==null||capture.Posts.Length==0){Problem=NeedsLogin?"需要登录 X":"采集页未就绪";SetStatus(Problem+" · 点击打开采集页检查");return;}
-    var cleaned=TiboStore.Clean(capture.Posts,DateTimeOffset.UtcNow);
-    if(cleaned.Count==0){Problem="消息校验未通过";SetStatus(Problem+" · 查看采集页");return;}
-    // Re-reading the same loaded page must not make it appear freshly fetched.
-    if(lastNavigation!=DateTimeOffset.MinValue)store.Merge(cleaned,lastNavigation,capture.PageUrl);
-    NeedsLogin=false;Problem=null;SetStatus("X 直连 · 已保存 "+store.History.Posts.Count+" 条公开消息");
-    if(!window.IsVisible)nextCapture=DateTimeOffset.UtcNow.AddMinutes(5);
-   }catch(Exception){Problem="X 页面读取失败";SetStatus(Problem+" · 保留上次记录");}
-   finally{capturing=false;}
-  }
-  public void Dispose(){if(closed)return;closed=true;timer.Stop();if(view!=null){view.Dispose();view=null;}if(window!=null){window.Closing-=OnClosing;window.Close();window=null;}if(processJob!=IntPtr.Zero){Native.CloseHandle(processJob);processJob=IntPtr.Zero;}}
+  public void Dispose(){if(closed)return;closed=true;timer.Stop();lifetime.Cancel();client.Dispose();if(details!=null)details.Close();}
  }
 }

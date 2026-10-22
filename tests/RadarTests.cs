@@ -1,12 +1,12 @@
 using System;
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
-using System.Windows;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
 
 namespace CodexQuotaMini.Tests {
  static class RadarTests {
@@ -56,33 +56,66 @@ namespace CodexQuotaMini.Tests {
    var directory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"store-test-"+Guid.NewGuid().ToString("N"));var store=new TiboStore(directory);var currentPost=Post(parent.Id,parent.Text,DateTimeOffset.UtcNow.ToString("o"));var currentReply=Post(timed.Id,timed.Text,DateTimeOffset.UtcNow.ToString("o"));store.Merge(new[]{currentPost,currentReply},DateTimeOffset.UtcNow,"https://x.com/thsottiaux/with_replies");var restored=new TiboStore(directory);
    Check(restored.History.Posts.Count==2,"public history survives restart");
   }
-  static async Task BrowserFixture(){
-   var directory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"webview-test-"+Guid.NewGuid().ToString("N"));
-   using(var view=new WebView2()){
-    IntPtr processJob=IntPtr.Zero;int browserPid=0;
-    var window=new Window {Width=400,Height=300,ShowActivated=false,ShowInTaskbar=false,Content=view};window.Show();
-    try {
-     await view.EnsureCoreWebView2Async(await CoreWebView2Environment.CreateAsync(null,directory));
-     browserPid=(int)view.CoreWebView2.BrowserProcessId;using(var process=Process.GetProcessById(browserPid))processJob=Native.OwnProcessTree(process.Handle);
-     Check(processJob!=IntPtr.Zero,"WebView2 process tree owned by application");
-     var ready=new TaskCompletionSource<bool>();view.CoreWebView2.NavigationCompleted+=(s,e)=>ready.TrySetResult(e.IsSuccess);
-     string html="<html><body><article><div data-testid='User-Name'><a href='/thsottiaux'>@thsottiaux</a></div><div data-testid='tweetText'>Reset tomorrow before 10am PST.</div><a href='/thsottiaux/status/2113162413008884099'><time datetime='2026-10-22T06:55:54Z'></time></a></article><article><div data-testid='User-Name'><a href='/someone'>@someone</a></div><div data-testid='tweetText'>Reset complete</div><a href='/someone/status/2113162413008884100'><time datetime='2026-10-22T06:55:54Z'></time></a></article><article><div data-testid='User-Name'><a href='/thsottiaux'>@thsottiaux</a></div><div data-testid='tweetText'>Original post</div><div role='link'><a href='/thsottiaux/status/2113162413008884101'><time datetime='2026-10-22T07:00:00Z'></time></a></div><a href='/thsottiaux/status/2113162413008884102'><time datetime='2026-10-22T07:05:00Z'></time></a></article></body></html>";
-     view.NavigateToString(html);if(await Task.WhenAny(ready.Task,Task.Delay(15000))!=ready.Task)throw new Exception("fixture navigation timed out");
-     string script;using(var input=System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("TiboCollector.js"))using(var reader=new StreamReader(input))script=reader.ReadToEnd();
-     var result=await view.CoreWebView2.ExecuteScriptAsync(script+"(document,'https://x.com/thsottiaux/with_replies')");
-     var capture=new JavaScriptSerializer().Deserialize<XCapture>(result);
-     Check(capture.Posts.Length==2,"DOM collector excludes other authors");
-     Check(capture.Posts[1].Id=="2113162413008884102","quoted timestamp not mistaken for original post");
-     Check(capture.Posts[0].ContextIds.Count==1,"same-page context preserved");
-     result=await view.CoreWebView2.ExecuteScriptAsync(script+"(document,'https://other.example/thsottiaux')");
-     Check(!new JavaScriptSerializer().Deserialize<XCapture>(result).IsTiboPage,"foreign host not collected");
-    }finally{view.Dispose();window.Close();if(processJob!=IntPtr.Zero)Native.CloseHandle(processJob);}
-    bool exited=false;try{using(var browser=Process.GetProcessById(browserPid))exited=await Task.Run(()=>browser.WaitForExit(5000));}catch(ArgumentException){exited=true;}
-    Check(exited,"collector browser exits when application releases it");
+  static Dictionary<string,object> D(params object[] fields){var d=new Dictionary<string,object>();for(int i=0;i<fields.Length;i+=2)d[(string)fields[i]]=fields[i+1];return d;}
+  static Dictionary<string,object> Tweet(string id,string text,string handle="thsottiaux"){
+   return D("__typename","Tweet","rest_id",id,"core",D("user_results",D("result",D("rest_id","1953337039510003712","core",D("screen_name",handle)))),"details",D("created_at_ms",DateTimeOffset.UtcNow.AddMinutes(-3).ToUnixTimeMilliseconds(),"full_text",text));
+  }
+  static object Entry(object tweet){return D("content",D("__typename","TimelineTimelineItem","content",D("tweet_results",D("result",tweet))));}
+  static string Page(params object[] entries){var payload=Json.Write(new {data=new {timeline=new {instructions=new[]{new {__typename="TimelineAddEntries",entries=entries}}}}});return "<script>self.fixture="+Json.Write(payload)+";</script>";}
+  sealed class Handler : HttpMessageHandler {
+   public int Count;
+   public Func<HttpRequestMessage,CancellationToken,Task<HttpResponseMessage>> Reply;
+   protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancel){
+    Count++;Check(request.Method==HttpMethod.Get&&request.RequestUri.Host=="x.com","runtime request is direct X GET");
+    Check(!request.Headers.Contains("Cookie")&&!request.Headers.Contains("Authorization"),"anonymous request has no account credentials");return Reply(request,cancel);
    }
   }
+  static HttpResponseMessage Response(string body,HttpStatusCode status=HttpStatusCode.OK){return new HttpResponseMessage(status){Content=new StringContent(body)};}
+  static async Task PublicPages(){
+   const string parent="2113162277688070445",replyId="2113162413008884099";
+   var own=Tweet(parent,"Day 17/ It's reset day today. 你好 \"X\"\nnext line");own["quoted_status_result"]=D("result",Tweet("2113162277688070446","Quoted reset complete"));
+   var reply=Tweet(replyId,"Lands tomorrow before 10am PST.");reply["reply_to_results"]=D("rest_id",parent);
+   string profile=Page(Entry(own),Entry(Tweet("2113162277688070447","Reset complete","someoneelse")));
+   string discussion=Page(Entry(own),D("content",D("__typename","TimelineTimelineModule","items",new[]{D("item",D("content",D("tweet_results",D("result",D("__typename","TweetWithVisibilityResults","tweet",reply)))))})),Entry(reply));
+   var parsed=PublicXParser.Parse(profile+"<script>throw new Error('must never execute');</script>",DateTimeOffset.UtcNow);
+   Check(parsed.Posts.Count==1&&parsed.Posts[0].Id==parent,"only primary own post is collected, not quotes or other authors");
+   Check(parsed.Posts[0].Text.Contains("你好 \"X\"\nnext line"),"nested JSON preserves escaped Unicode and newlines");
+   var thread=PublicXParser.Parse(discussion,DateTimeOffset.UtcNow);var found=thread.Posts.Single(p=>p.Id==replyId);
+   Check(thread.Posts.Count==2&&found.Kind=="reply"&&found.ReplyToId==parent&&found.ContextIds.SequenceEqual(new[]{parent}),"conversation modules preserve exact reply parent and deduplicate");
+   Check(PublicXParser.Parse("<html><script>self.login=true;</script></html>",DateTimeOffset.UtcNow).Posts.Count==0,"login shell is not fabricated as a successful timeline");
+   Check(LocalResetPredictor.Analyze(thread.Posts,DateTimeOffset.UtcNow).Kind=="planned","collected self reply drives the local reset prediction");
+   using(var http=new PublicXClient(new Handler {Reply=(r,c)=>Task.FromResult(Response(r.RequestUri.AbsoluteUri==PublicXClient.Profile?profile:discussion))})){
+    var batch=await http.Collect(CancellationToken.None);Check(batch.Posts.Count==2&&!batch.Partial,"automatic collection discovers reply without a prefilled post ID");
+   }
+   using(var http=new PublicXClient(new Handler {Reply=(r,c)=>Task.FromResult(Response(r.RequestUri.AbsoluteUri==PublicXClient.Profile?profile:"",r.RequestUri.AbsoluteUri==PublicXClient.Profile?HttpStatusCode.OK:HttpStatusCode.NotFound))})){
+    var batch=await http.Collect(CancellationToken.None);Check(batch.Partial&&batch.Posts.Count==1,"failed discussion retains original and marks partial coverage");
+   }
+   var redirect=new Handler {Reply=(r,c)=>{var response=Response("",HttpStatusCode.Found);response.Headers.Location=new Uri("https://other.example/");return Task.FromResult(response);}};
+   using(var http=new PublicXClient(redirect)){try{await http.ReadPage(PublicXClient.Profile,CancellationToken.None);throw new Exception("redirect should fail");}catch(XReadException){Check(redirect.Count==1,"foreign redirect blocked before network access");}}
+   var limited=new Handler {Reply=(r,c)=>{var response=Response("",(HttpStatusCode)429);response.Headers.RetryAfter=new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(30));return Task.FromResult(response);}};
+   using(var http=new PublicXClient(limited)){
+    for(int i=0;i<2;i++)try{await http.ReadPage(PublicXClient.Profile,CancellationToken.None);}catch(XReadException){}
+    Check(limited.Count==1&&http.RetryAt>DateTimeOffset.UtcNow.AddMinutes(29),"rate limit respected without retry or token rotation");
+   }
+   var blocked=new Handler {Reply=async(r,c)=>{await Task.Delay(Timeout.Infinite,c);return Response("");}};
+   using(var http=new PublicXClient(blocked))using(var cancel=new CancellationTokenSource()){
+    var task=http.Collect(cancel.Token);cancel.Cancel();try{await task;throw new Exception("cancel should fail");}catch(OperationCanceledException){Check(blocked.Count==1,"shutdown cancellation interrupts collection");}
+   }
+   var directory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"public-store-"+Guid.NewGuid().ToString("N"));var store=new TiboStore(directory);store.Merge(thread.Posts,DateTimeOffset.UtcNow,PublicXClient.Profile,"limited",true);var restored=new TiboStore(directory);
+   Check(restored.History.Partial&&restored.History.ReplyCount==1&&restored.History.Posts.Single(p=>p.Id==replyId).ContextIds.Contains(parent),"cache preserves reply relation, counts and partial status");
+   string checkedAt=store.History.CheckedAt;
+   using(var collector=new XMessageCollector(directory,store,new PublicXClient(new Handler {Reply=(r,c)=>Task.FromResult(Response("<html>login shell</html>"))}))){
+    await collector.Refresh(true);Check(store.History.CheckedAt==checkedAt&&store.History.Posts.Count==2&&collector.Problem!=null,"failed refresh preserves history and does not advance successful check time");
+   }
+   var waiting=new Handler {Reply=async(r,c)=>{await Task.Delay(Timeout.Infinite,c);return Response("");}};
+   var running=new XMessageCollector(directory,store,new PublicXClient(waiting));
+   var first=running.Refresh(true);var second=running.Refresh(true);
+   Check(Object.ReferenceEquals(first,second)&&waiting.Count==1,"manual and timer refresh share one in-flight collection");
+   running.Dispose();await first;
+   Check(store.History.CheckedAt==checkedAt&&waiting.Count==1,"disposing the widget cancels its collector without refreshing cache");
+  }
   [STAThread] public static int Main(){
-   try{Rules();var app=new Application {ShutdownMode=ShutdownMode.OnExplicitShutdown};int result=0;app.Startup+=async(s,e)=>{try{await BrowserFixture();Console.WriteLine("TOTAL "+checks+" checks passed");}catch(Exception error){Console.Error.WriteLine(error);result=1;}finally{app.Shutdown();}};app.Run();return result;}catch(Exception error){Console.Error.WriteLine(error);return 1;}
+   try{Rules();PublicPages().GetAwaiter().GetResult();Console.WriteLine("TOTAL "+checks+" checks passed");return 0;}catch(Exception error){Console.Error.WriteLine(error);return 1;}
   }
  }
 }

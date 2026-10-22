@@ -22,15 +22,20 @@ namespace CodexQuotaMini {
   public string Text {get;set;}
   public string PublishedAt {get;set;}
   public string Url {get;set;}
+  public string Kind {get;set;}
+  public string ReplyToId {get;set;}
   public List<string> ContextIds=new List<string>();
  }
  sealed class TiboHistory {
   public int Version=1;
   public string CheckedAt,PageUrl;
+  public string CoverageNote;
+  public int OriginalCount,ReplyCount;
+  public bool Partial;
   public List<TiboPost> Posts=new List<TiboPost>();
  }
  sealed class ResetAssessment {
-  public string Kind="unknown",Summary="等待直接采集 Tibo 消息",Reason="首次使用请打开采集窗口并登录 X。",Strength="样本不足";
+  public string Kind="unknown",Summary="等待直接采集 Tibo 消息",Reason="看板启动后自动读取 X 公开页面，无需登录。",Strength="样本不足";
   public TiboPost Source;
   public DateTimeOffset? EarliestDeadline,LatestDeadline;
  }
@@ -42,8 +47,12 @@ namespace CodexQuotaMini {
    return (posts??new List<TiboPost>()).Where(p=>p!=null&&Regex.IsMatch(p.Id??"",@"^\d{10,25}$")&&RadarData.SafeUrl(p.Url)=="https://x.com/thsottiaux/status/"+p.Id&&!String.IsNullOrWhiteSpace(p.Text)&&p.Text.Length<=12000&&RadarData.Date(p.PublishedAt).HasValue&&RadarData.Date(p.PublishedAt)<=now.AddMinutes(5)&&RadarData.Date(p.PublishedAt)>=now.AddDays(-180)).GroupBy(p=>p.Id).Select(g=>g.Last()).OrderByDescending(p=>RadarData.Date(p.PublishedAt)).Take(2000).ToList();
   }
   public void Merge(IEnumerable<TiboPost> posts,DateTimeOffset now,string pageUrl){
-   History.Posts=Clean(History.Posts.Concat(posts??new List<TiboPost>()),now);History.CheckedAt=now.ToString("o");History.PageUrl=pageUrl;
-   Directory.CreateDirectory(Path.GetDirectoryName(file));string temporary=file+".tmp";File.WriteAllText(temporary,new JavaScriptSerializer {MaxJsonLength=8*1024*1024}.Serialize(History),Encoding.UTF8);if(File.Exists(file))File.Replace(temporary,file,null);else File.Move(temporary,file);
+   Merge(posts,now,pageUrl,"近期原帖及公开讨论中的作者回复，回复覆盖不完整。",false);
+  }
+  public void Merge(IEnumerable<TiboPost> posts,DateTimeOffset now,string pageUrl,string coverageNote,bool partial){
+   var incoming=Clean(posts,now);
+   var next=new TiboHistory {Posts=Clean(History.Posts.Concat(incoming),now),CheckedAt=now.ToString("o"),PageUrl=pageUrl,CoverageNote=coverageNote,Partial=partial,OriginalCount=incoming.Count(p=>p.Kind=="post"),ReplyCount=incoming.Count(p=>p.Kind=="reply")};
+   Directory.CreateDirectory(Path.GetDirectoryName(file));string temporary=file+".tmp";File.WriteAllText(temporary,new JavaScriptSerializer {MaxJsonLength=8*1024*1024}.Serialize(next),Encoding.UTF8);if(File.Exists(file))File.Replace(temporary,file,null);else File.Move(temporary,file);History=next;
   }
  }
  static class LocalResetPredictor {
@@ -85,7 +94,7 @@ namespace CodexQuotaMini {
       result.Summary=now>late?"预告已过时限 · 等待后续":"预告："+early.ToOffset(RadarData.Beijing).ToString("MM/dd HH:mm")+(late!=early?"–"+late.ToOffset(RadarData.Beijing).ToString("HH:mm"):"")+" 前";
       result.Reason=explanation;result.Strength=now>late?"预告已过时限":"有时间预告";
      }else{result.Summary="发现重置预告 · 时间未确认";result.Reason="检测到预告措辞，但未解析到可验证的截止时刻。";result.Strength="预告线索";}
-     if(linked)result.Reason+="\n时间线索与同页此前一小时内的重置预告关联；该关联是本地规则推定。";
+     if(linked)result.Reason+="\n根据父帖关联到此前一小时内的重置预告；时间含义仍由本地规则推定。";
     }
     candidates.Add(result);
    }

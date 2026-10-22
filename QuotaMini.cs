@@ -20,6 +20,11 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 
+[assembly: System.Reflection.AssemblyTitle("Codex 额度看板")]
+[assembly: System.Reflection.AssemblyProduct("Codex Quota Dashboard")]
+[assembly: System.Reflection.AssemblyVersion("0.3.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.3.0.0")]
+
 namespace CodexQuotaMini {
  static class Json {
   public static Dictionary<string,object> Read(string text) { return new JavaScriptSerializer { MaxJsonLength=16777216 }.Deserialize<Dictionary<string,object>>(text); }
@@ -273,7 +278,7 @@ namespace CodexQuotaMini {
   }
   void SaveDisplayProof() {
    try {
-    WriteAtomic(Path.Combine(dataDir,"window-state.json"),Json.Write(new {visible=IsVisible,topmost=Topmost,left=Left,top=Top,width=ActualWidth,height=ActualHeight,following=following,anchorX=anchorX,anchorY=anchorY,updatedAt=lastSuccess.ToString("o")}));
+    WriteAtomic(Path.Combine(dataDir,"window-state.json"),Json.Write(new {visible=IsVisible,topmost=Topmost,left=Left,top=Top,width=ActualWidth,height=ActualHeight,following=following,anchorX=anchorX,anchorY=anchorY,updatedAt=lastSuccess.ToString("o"),radar=radar.DisplayState}));
     var bitmap=new RenderTargetBitmap((int)Math.Ceiling(ActualWidth),(int)Math.Ceiling(ActualHeight),96,96,PixelFormats.Pbgra32);bitmap.Render(this);
     var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using(var file=File.Create(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"小窗预览.png")))encoder.Save(file);
    }catch{}
