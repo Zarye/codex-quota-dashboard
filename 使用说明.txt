@@ -1,6 +1,7 @@
 Codex 额度小窗
 
-从桌面“ChatGPT”联动快捷方式启动。窗口置顶，默认显示在桌面 Mini 下方。
+编译后运行 CodexQuotaMini.exe --launch-chatgpt，联动启动桌面应用和额度小窗。
+也可自行创建带有 --launch-chatgpt 参数的快捷方式。窗口置顶，默认显示在桌面 Mini 下方。
 ChatGPT 已运行时，也可双击 CodexQuotaMini.exe 单独打开额度小窗；ChatGPT 未运行时它会直接退出。
 采用紧凑圆环看板，圆心显示剩余百分比；旁边直接显示周期重置时间和倒计时（北京时间）。
 绿色表示额度充足，低于 35% 变为黄色，低于 15% 变为红色。
@@ -40,14 +41,14 @@ data/reset-radar-cache.json 仅保存公开信号、预测、来源链接与时�
 当跟随开启时，Mini 隐藏后额度小窗也会隐藏。
 点击 × 或右键“关闭”即可退出，额度连接进程也随之结束。
 现已改成与 ChatGPT 同启同退，不再使用 Windows 登录后常驻待命的后台助手。
-请从桌面的“ChatGPT”联动快捷方式打开，或使用本文件夹的“启动 ChatGPT（带额度）.lnk”。
+请从自行创建的联动快捷方式打开，或运行 CodexQuotaMini.exe --launch-chatgpt；仓库不附带本机快捷方式。
 这个入口同时打开 ChatGPT 与额度小窗；启动器随即结束，不在后台轮询等待。
 ChatGPT 主进程退出时，额度小窗及它的额度读取子进程全部退出。
 隐藏 Mini 只会隐藏额度小窗；ChatGPT 仍运行时，小窗可以随 Mini 恢复显示。
 点击 × 可以在本次 ChatGPT 运行期间关闭额度小窗。
 原来系统内置的商店应用入口没有改动，从那里打开不会自动带起额度小窗。
 已移除此前添加的 CodexQuotaMini 登录启动项。
-请保留本文件夹的位置，自动启动项指向这里的 EXE。
+移动程序文件夹后，请更新自行创建的快捷方式所指向的 EXE 路径。
 
 本程序通过本机 Codex app-server 的 account/rateLimits/read 读取额度。
 复用 Codex 自身的登录管理，不复制、不保存账号密钥；不创建对话或调用模型。
