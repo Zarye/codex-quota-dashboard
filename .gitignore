@@ -1,0 +1,21 @@
+# Local account data, quota/reset-card snapshots and window settings
+/data/
+
+# Built files and local launchers
+*.exe
+*.dll
+*.pdb
+*.lnk
+*.ico
+*.png
+/bin/
+/obj/
+
+# Local diagnostics, editor files and temporary output
+*.log
+*.tmp
+*.user
+/.vs/
+/.vscode/
+/.idea/
+.DS_Store
